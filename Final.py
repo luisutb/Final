@@ -7,15 +7,15 @@ import re
 
 import nltk
 from nltk.corpus import stopwords
-
-from transformers import pipeline
-import torch
+from nltk.sentiment import SentimentIntensityAnalyzer
 
 # Descargar recursos
 nltk.download("stopwords")
+nltk.download("vader_lexicon")
 stop_words = set(stopwords.words("english"))
+sia = SentimentIntensityAnalyzer()
 
-# Cargar y preprocesar texto
+# Limpieza de texto
 def clean_text(text):
     text = re.sub(r"<.*?>", "", text)
     text = re.sub(r"[^a-zA-Z\s]", "", text)
@@ -23,6 +23,7 @@ def clean_text(text):
     text = " ".join([word for word in text.split() if word not in stop_words])
     return text
 
+# Cargar y preprocesar
 @st.cache_data
 def load_data():
     df = pd.read_csv("IMDB Dataset.csv")
@@ -32,45 +33,32 @@ def load_data():
 
 df = load_data()
 
-# Modelo de sentimiento contextual (BERT)
-@st.cache_resource
-def load_sentiment_model():
-    return pipeline("sentiment-analysis", model="nlptown/bert-base-multilingual-uncased-sentiment")
+# Clasificación con VADER
+def get_sentiment(text):
+    score = sia.polarity_scores(text)["compound"]
+    if score >= 0.05:
+        return "Positive"
+    elif score <= -0.05:
+        return "Negative"
+    else:
+        return "Neutral"
 
-sentiment_model = load_sentiment_model()
+df["sentiment"] = df["clean_review"].apply(get_sentiment)
 
-# Aplicar análisis de sentimiento
-@st.cache_data
-def classify_sentiments(texts):
-    sentiments = sentiment_model(texts, truncation=True)
-    result = []
-    for s in sentiments:
-        label = s["label"]
-        if label in ["1 star", "2 stars"]:
-            result.append("Negative")
-        elif label == "3 stars":
-            result.append("Neutral")
-        else:
-            result.append("Positive")
-    return result
-
-df["sentiment"] = classify_sentiments(df["clean_review"].tolist())
-
-# Sidebar: filtros
+# Sidebar
 st.sidebar.title("🔍 Filtros")
 sentiment_filter = st.sidebar.multiselect(
     "Filtrar por sentimiento:", ["Positive", "Neutral", "Negative"], default=["Positive", "Neutral", "Negative"]
 )
-
-keyword = st.sidebar.text_input("Buscar palabra clave en la reseña:")
+keyword = st.sidebar.text_input("Buscar palabra clave:")
 
 filtered_df = df[df["sentiment"].isin(sentiment_filter)]
 if keyword:
     filtered_df = filtered_df[filtered_df["clean_review"].str.contains(keyword.lower(), na=False)]
 
 # Título
-st.title("🎬 Análisis de Sentimientos con BERT - Reseñas IMDB")
-st.markdown("Este análisis usa un modelo **BERT contextual** para clasificar reseñas como **positivas**, **negativas** o **neutrales**, teniendo en cuenta el tono y el contexto.")
+st.title("🎬 Análisis de Sentimientos con VADER - IMDB Reviews")
+st.markdown("Este análisis utiliza el modelo **VADER (Valence Aware Dictionary)** para clasificar sentimientos en 5000 reseñas.")
 
 # Estadísticas
 st.subheader("📊 Estadísticas Generales")
@@ -96,6 +84,7 @@ def generate_wordcloud(data, title):
     st.markdown(f"**{title}**")
 
 generate_wordcloud(df["clean_review"], "Todas las Reseñas")
+
 col1, col2, col3 = st.columns(3)
 with col1:
     generate_wordcloud(df[df["sentiment"] == "Positive"]["clean_review"], "Positivas")
@@ -119,8 +108,8 @@ st.dataframe(filtered_df[["review", "sentiment"]].reset_index(drop=True), use_co
 st.markdown("---")
 st.markdown("## 📄 Documentación del Proyecto")
 st.markdown("""
-**🔹 Dataset:** IMDB Movie Reviews.  
-**🔹 Tamaño:** 5000 reseñas.  
+**🔹 Dataset:** IMDB Movie Reviews  
+**🔹 Tamaño analizado:** 5000 registros  
 **🔹 Preprocesamiento:**  
 - Eliminación de HTML  
 - Minúsculas  
@@ -128,10 +117,16 @@ st.markdown("""
 - Remoción de stopwords  
 
 **🔹 Modelo:**  
-- `nlptown/bert-base-multilingual-uncased-sentiment` (modelo contextual basado en BERT)  
-- Mejora sobre VADER: reconoce tono, sarcasmo leve, matices de contexto.
+- `VADER` (NLTK)  
+- Regla: `compound >= 0.05 = positivo`, `<= -0.05 = negativo`, otro = neutral
 
 **🔹 Visualizaciones:**  
-- Nubes de palabras (global y por clase)  
-- Boxplot de longitud por sentimiento  
-- Tabla filtrable  """)
+- Nubes de palabras por clase  
+- Boxplot de longitud  
+- Filtros y tabla de reseñas  
+
+**🔹 Limitaciones:**  
+- VADER no capta ironía ni sarcasmo  
+- No considera contexto como BERT, pero las pruebas con este no se pudieron llevar a cabo por lo pesado del modelo. 
+""")
+
