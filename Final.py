@@ -3,27 +3,27 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from wordcloud import WordCloud
-import re
-
 import nltk
 from nltk.corpus import stopwords
-from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import re
 
-# Descargar recursos
+# Descargar recursos necesarios de nltk
 nltk.download("stopwords")
 nltk.download("vader_lexicon")
-stop_words = set(stopwords.words("english"))
-sia = SentimentIntensityAnalyzer()
 
-# Limpieza de texto
+# Cargar stopwords
+stop_words = set(stopwords.words("english"))
+
+# Preprocesamiento
 def clean_text(text):
-    text = re.sub(r"<.*?>", "", text)
-    text = re.sub(r"[^a-zA-Z\s]", "", text)
+    text = re.sub(r"<.*?>", "", text)  # quitar etiquetas HTML
+    text = re.sub(r"[^a-zA-Z\s]", "", text)  # quitar símbolos y números
     text = text.lower()
     text = " ".join([word for word in text.split() if word not in stop_words])
     return text
 
-# Cargar y preprocesar
+# Cargar datos
 @st.cache_data
 def load_data():
     df = pd.read_csv("IMDB Dataset.csv")
@@ -33,9 +33,10 @@ def load_data():
 
 df = load_data()
 
-# Clasificación con VADER
-def get_sentiment(text):
-    score = sia.polarity_scores(text)["compound"]
+# Aplicar VADER
+sid = SentimentIntensityAnalyzer()
+
+def get_sentiment(score):
     if score >= 0.05:
         return "Positive"
     elif score <= -0.05:
@@ -43,22 +44,24 @@ def get_sentiment(text):
     else:
         return "Neutral"
 
-df["sentiment"] = df["clean_review"].apply(get_sentiment)
+df["compound"] = df["clean_review"].apply(lambda x: sid.polarity_scores(x)["compound"])
+df["sentiment"] = df["compound"].apply(get_sentiment)
 
-# Sidebar
+# Sidebar: filtros
 st.sidebar.title("🔍 Filtros")
 sentiment_filter = st.sidebar.multiselect(
     "Filtrar por sentimiento:", ["Positive", "Neutral", "Negative"], default=["Positive", "Neutral", "Negative"]
 )
-keyword = st.sidebar.text_input("Buscar palabra clave:")
+
+keyword = st.sidebar.text_input("Buscar palabra clave en la reseña:")
 
 filtered_df = df[df["sentiment"].isin(sentiment_filter)]
 if keyword:
     filtered_df = filtered_df[filtered_df["clean_review"].str.contains(keyword.lower(), na=False)]
 
 # Título
-st.title("🎬 Análisis de Sentimientos con VADER - IMDB Reviews")
-st.markdown("Este análisis utiliza el modelo **VADER (Valence Aware Dictionary)** para clasificar sentimientos en 5000 reseñas.")
+st.title("🎬 Análisis de Sentimientos de Reseñas IMDB")
+st.markdown("Este análisis usa VADER para clasificar reseñas como **positivas**, **negativas** o **neutrales**.")
 
 # Estadísticas
 st.subheader("📊 Estadísticas Generales")
@@ -68,8 +71,10 @@ percentages = counts / len(df) * 100
 col1, col2 = st.columns(2)
 with col1:
     st.metric("Total de reseñas", len(df))
+    st.write("### Conteo por categoría")
     st.bar_chart(counts)
 with col2:
+    st.write("### Porcentaje por categoría")
     st.bar_chart(percentages)
 
 # Nubes de palabras
@@ -84,7 +89,6 @@ def generate_wordcloud(data, title):
     st.markdown(f"**{title}**")
 
 generate_wordcloud(df["clean_review"], "Todas las Reseñas")
-
 col1, col2, col3 = st.columns(3)
 with col1:
     generate_wordcloud(df[df["sentiment"] == "Positive"]["clean_review"], "Positivas")
@@ -93,40 +97,42 @@ with col2:
 with col3:
     generate_wordcloud(df[df["sentiment"] == "Negative"]["clean_review"], "Negativas")
 
-# Boxplot de longitud
-st.subheader("🧠 Longitud de Reseñas por Sentimiento")
+# Análisis adicional
+st.subheader("🧠 Análisis Complementario")
+
 df["length"] = df["review"].apply(len)
 fig, ax = plt.subplots()
 sns.boxplot(data=df, x="sentiment", y="length", ax=ax, palette="Set2")
+ax.set_title("Distribución de Longitud de Reseñas por Sentimiento")
 st.pyplot(fig)
 
 # Tabla de reseñas
 st.subheader("📃 Reseñas Filtradas")
-st.dataframe(filtered_df[["review", "sentiment"]].reset_index(drop=True), use_container_width=True)
+st.dataframe(filtered_df[["review", "sentiment", "compound"]].reset_index(drop=True), use_container_width=True)
 
 # Documentación
 st.markdown("---")
 st.markdown("## 📄 Documentación del Proyecto")
 st.markdown("""
-**🔹 Dataset:** IMDB Movie Reviews  
-**🔹 Tamaño analizado:** 5000 registros  
-**🔹 Preprocesamiento:**  
-- Eliminación de HTML  
-- Minúsculas  
-- Eliminación de símbolos  
-- Remoción de stopwords  
+**🔹 Origen del dataset:**  
+IMDB Movie Review Dataset - contiene reseñas de películas etiquetadas como positivas o negativas.
 
-**🔹 Modelo:**  
-- `VADER` (NLTK)  
-- Regla: `compound >= 0.05 = positivo`, `<= -0.05 = negativo`, otro = neutral
+**🔹 Preprocesamiento realizado:**  
+- Eliminación de HTML y símbolos.  
+- Conversión a minúsculas.  
+- Eliminación de palabras vacías (stopwords).  
+
+**🔹 Herramienta utilizada para análisis de sentimiento:**  
+- VADER SentimentIntensityAnalyzer (`nltk.sentiment.vader`).
 
 **🔹 Visualizaciones:**  
-- Nubes de palabras por clase  
-- Boxplot de longitud  
-- Filtros y tabla de reseñas  
+- Gráficos de barras.  
+- Nubes de palabras por sentimiento.  
+- Boxplot de longitud de reseñas.
 
 **🔹 Limitaciones:**  
-- VADER no capta ironía ni sarcasmo  
-- No considera contexto como BERT, pero las pruebas con este no se pudieron llevar a cabo por lo pesado del modelo. 
+- Solo se usa texto, no se considera tono o contexto profundo.  
+- El tamaño reducido (200 reseñas) limita el poder estadístico.  
 """)
+
 
