@@ -1,6 +1,8 @@
 streamlit
 pandas
-nltk
-textblob
-wordcloud
 matplotlib
+seaborn
+nltk
+wordcloud
+transformers
+torch
